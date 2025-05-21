@@ -1,5 +1,7 @@
 #include <string>	// For string, 
 #include <stdexcept>// For runtime_error
+#include <vector> // for vector
+#include <functional>
 
 #ifdef _WIN32 // Windows MSVC
 #include <windows.h>// For _popen, _pclose
@@ -11,6 +13,7 @@
 
 #include "util/currencies_enum.hpp"	// For currencies::currencies
 #include "util/currencies_names.hpp"	// For currencies::names
+#include "util/get_exchange_rate.hpp"
 
 using namespace std;
 
@@ -18,33 +21,14 @@ using namespace std;
 namespace currencies
 {
 	// Get the exchange rate between two currencies by calling an API, an example use of advanced features
-	double get_exchange_rate(const currencies from, const currencies to)
+	// refactored to use dependency injection to enable testing
+	double get_exchange_rate(const currencies from, const currencies to, const function<string(const string&)>& fetcher)
 	{
 		// Example use of static_cast
 		string from_currency = names[static_cast<int>(from)];
 		string to_currency = names[static_cast<int>(to)];
-		char* buf = static_cast<char*>(malloc(1024));		// Dynamically allocate memory and use it as a buffer of char type
 
-		if (!buf)
-		{
-			throw runtime_error("Error: Failed to allocate memory, please make sure your system have enough aviliable RAM");
-		}
-
-		string cmd = "curl -s \"https://latest.currency-api.pages.dev/v1/currencies/" + from_currency + ".min.json\"";
-		FILE* pipe = popen(cmd.c_str(), "r");				// Execute curl to fetch data from the API
-
-		if (!pipe)
-		{
-			throw runtime_error("Error: Failed to execute curl command, please make sure curl is installed and added to PATH");
-		}
-
-		string res;
-		while (fgets(buf, 1024, pipe) != nullptr)			// Read the output of curl until it is empty
-		{
-			res += buf;
-		}
-		free(static_cast<void*>(buf));						// Release dynamically allocated memory
-		pclose(pipe);
+        string res = fetcher(from_currency);
 
 		if (res.length() == 0)
 		{
@@ -63,4 +47,24 @@ namespace currencies
 			throw runtime_error("Error: Failed to process fetched exchange rate");
 		}
 	}
+
+    string fetch_exchange_rate(const string& from_currency) {
+		std::string cmd = "curl -s \"https://latest.currency-api.pages.dev/v1/currencies/" + from_currency + ".min.json\"";
+		FILE* pipe = popen(cmd.c_str(), "r");
+		if (!pipe)
+			throw runtime_error("Error: Failed to execute curl command, please make sure curl is installed and added to PATH");
+
+		vector<char> buf(1024);
+		string res;
+		while (fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr)
+		{
+			res += buf.data();
+		}
+		pclose(pipe);
+
+		if (res.empty())
+			throw runtime_error("Error: Failed to fetch exchange rate, please check your internet connection");
+
+		return res;
+    }
 }
